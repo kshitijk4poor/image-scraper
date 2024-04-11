@@ -3,21 +3,18 @@ import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 from collections import deque
-
 from config import num_images, websites
+from hashlib import md5
 
 def scrape_images(num_images, websites):
     """
     Scrape images from the given websites and save them in a folder.
-
     Args:
         num_images (int): The number of images to be scraped.
         websites (list or str): A list of website URLs or a single website URL.
-
     Returns:
         None
     """
-
     # Create a folder to store the images
     folder_name = "scraped_images"
     os.makedirs(folder_name, exist_ok=True)
@@ -26,8 +23,9 @@ def scrape_images(num_images, websites):
     if isinstance(websites, str):
         websites = [websites]
 
-    # Keep track of the number of images scraped
+    # Keep track of the number of images scraped and unique image hashes
     images_scraped = 0
+    unique_image_hashes = set()
 
     for website in websites:
         try:
@@ -44,8 +42,10 @@ def scrape_images(num_images, websites):
                     continue
 
                 visited_urls.add(current_url)
+
                 response = requests.get(current_url)
                 response.raise_for_status()  # Raise an exception for non-2xx status codes
+
                 soup = BeautifulSoup(response.content, 'html.parser')
 
                 # Find all image tags on the page
@@ -62,13 +62,24 @@ def scrape_images(num_images, websites):
                         # Download the image
                         image_data = requests.get(image_url).content
 
+                        # Compute the hash of the image to check for duplicates
+                        image_hash = md5(image_data).hexdigest()
+
+                        # Skip the image if it has already been downloaded
+                        if image_hash in unique_image_hashes:
+                            print(f"Skipping duplicate image: {image_url}")
+                            continue
+
+                        unique_image_hashes.add(image_hash)
+
                         # Save the image
                         image_name = f"image_{images_scraped}.jpg"
                         image_path = os.path.join(folder_name, image_name)
+
                         with open(image_path, 'wb') as f:
                             f.write(image_data)
 
-                        print(f"Downloaded image: {image_url}")
+                        print(f"Downloaded image {images_scraped + 1}/{num_images}: {image_url}")
                         images_scraped += 1
 
                     except Exception as e:
@@ -76,18 +87,20 @@ def scrape_images(num_images, websites):
 
                 # Find all links on the page and add them to the queue
                 links = soup.find_all('a')
+
                 for link in links:
                     href = link.get('href')
                     if href.startswith('/'):
                         href = domain + href
                     elif not href.startswith('http'):
                         continue
+
                     if urlparse(href).netloc == urlparse(current_url).netloc:
                         queue.append(href)
 
         except Exception as e:
             print(f"Error scraping website: {website}, {e}")
 
-    print(f"Scraped {images_scraped} images and saved them in {folder_name} folder.")
+    print(f"Scraped {images_scraped}/{num_images} images and saved them in {folder_name} folder.")
 
 scrape_images(num_images, websites)
